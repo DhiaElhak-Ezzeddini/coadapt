@@ -281,19 +281,30 @@ class _LLMBackend:
         self.tokenizer = AutoTokenizer.from_pretrained(model_id)
         self._is_gptoss = "gpt-oss" in model_id.lower()
 
+        # [kaggle] T4 GPUs (compute capability 7.5) have no native bfloat16:
+        # use float16 there, bfloat16 on Ampere/Hopper (A100, H100, RTX 3090).
+        has_bf16 = torch.cuda.is_available() and torch.cuda.get_device_capability(0)[0] >= 8
+        half = torch.bfloat16 if has_bf16 else torch.float16
+        # [kaggle] spread the model over ALL visible GPUs (e.g. 2x T4),
+        # leaving ~1.5 GiB per GPU for activations and the KV cache.
+        n_gpu = torch.cuda.device_count()
+        max_mem = ({i: f"{int(torch.cuda.get_device_properties(i).total_memory / 2**30 - 1.5)}GiB"
+                    for i in range(n_gpu)} if n_gpu > 1 else None)
+
         if quantization in (4, 8):
             # Use bitsandbytes for 4-bit or 8-bit quantization.
             bnb_config = BitsAndBytesConfig(
                 load_in_4bit=(quantization == 4),
                 load_in_8bit=(quantization == 8),
-                bnb_4bit_compute_dtype=torch.bfloat16,
+                bnb_4bit_compute_dtype=half,                       # [kaggle]
                 bnb_4bit_quant_type="nf4",
             )
             self.model = AutoModelForCausalLM.from_pretrained(
                 model_id,
                 quantization_config=bnb_config,
-                torch_dtype=torch.float16 if quantization == 8 else torch.bfloat16,
-                device_map="cuda",
+                torch_dtype=torch.float16 if quantization == 8 else half,  # [kaggle]
+                device_map="auto",                                 # [kaggle] was "cuda" (GPU 0 only)
+                max_memory=max_mem,                                # [kaggle]
             )
             print(f"[selector] Loaded with {quantization}-bit quantization (bitsandbytes).")
         elif quantization == 16:
@@ -312,11 +323,12 @@ class _LLMBackend:
             print("[selector] Loaded in float32.")
         else:
             # Default: bfloat16 for GPT-OSS, auto for others
-            dtype = torch.bfloat16 if self._is_gptoss else "auto"
+            dtype = half if self._is_gptoss else "auto"            # [kaggle]
             self.model = AutoModelForCausalLM.from_pretrained(
                 model_id,
                 torch_dtype=dtype,
                 device_map="auto",
+                max_memory=max_mem,                                # [kaggle]
             )
             print(f"[selector] Loaded in {'bfloat16' if self._is_gptoss else 'auto'} dtype.")
 
