@@ -62,6 +62,7 @@ _repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if _repo_root not in sys.path:
     sys.path.insert(0, _repo_root)
 
+from coadapt.feasibility_validator import ValidatedSelector
 from coadapt.scene_abstraction_module import iter_frames
 from coadapt.llm_robot_and_strategy_selector import (
     RobotAndStrategySelector,
@@ -202,7 +203,12 @@ def run_selection(args, selection_csv_path: str) -> None:
         max_new_tokens=args.max_new_tokens,
         quantization=args.quantization,
     )
-
+    if args.validate_bandwidth:                                        # [extension]
+        selector = ValidatedSelector(
+            selector,
+            log_csv=os.path.join(os.path.dirname(selection_csv_path), "validation_log.csv"),
+            max_retries=args.max_feedback_rounds,
+        )
     with open(selection_csv_path, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=SELECTION_FIELDS)
         writer.writeheader()
@@ -228,6 +234,7 @@ def run_selection(args, selection_csv_path: str) -> None:
                       f"in-range CAVs: {[c for c, i in scenario_data['cavs'].items() if i['dist_to_ego'] <= scenario_data['com_range']]}")
 
                 import time as _time
+                scenario_data["scenario_path"] = sp  
                 _t0 = _time.monotonic()
                 parsed, raw_response = selector.select(
                     scenario_data,
@@ -766,6 +773,10 @@ def parse_args():
                    help="Previous eval.csv to feed AP feedback to the LLM")
 
     # Selection control
+    p.add_argument("--validate_bandwidth", action="store_true",       # [extension]
+                   help="Check each LLM decision against the bandwidth and "
+                        "re-prompt the LLM with feedback if it is infeasible")
+    p.add_argument("--max_feedback_rounds", type=int, default=1)      # [extension]
     p.add_argument("--skip_selection", action="store_true",
                    help="Skip Phase 1 and use an existing selection CSV")
     p.add_argument("--selection_csv",  default=None,
