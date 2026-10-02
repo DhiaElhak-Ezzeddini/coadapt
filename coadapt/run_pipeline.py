@@ -658,7 +658,7 @@ def _run_inference(args, selection_csv_path: str, eval_csv_path: str) -> None:
 
             with torch.no_grad():
                 if fm == "late":
-                    pred_box, pred_score, gt_box, _ = \
+                    pred_box, pred_score, gt_box = \
                         inference_utils.inference_late_fusion(
                             batch_dev, model, base_ds)
                 elif fm == "early":
