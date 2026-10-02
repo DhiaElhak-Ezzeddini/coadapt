@@ -660,7 +660,7 @@ def _run_inference(args, selection_csv_path: str, eval_csv_path: str) -> None:
                 if fm == "late":
                     pred_box, pred_score, gt_box, _ = \
                         inference_utils.inference_late_fusion(
-                            batch_dev, model, base_ds, return_output_dict=True)
+                            batch_dev, model, base_ds)
                 elif fm == "early":
                     pred_box, pred_score, gt_box = \
                         inference_utils.inference_early_fusion(batch_dev, model, base_ds)
